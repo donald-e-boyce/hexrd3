@@ -136,4 +136,8 @@ class FrameCacheImageSeriesAdapter(ImageSeriesAdapter):
     def __len__(self):
         return self._nframes
 
+    @property
+    def framelist(self):
+        return self._framelist
+
     pass  # end class
