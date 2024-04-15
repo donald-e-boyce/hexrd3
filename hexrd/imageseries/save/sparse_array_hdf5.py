@@ -20,8 +20,29 @@ class SparseArrayHDF5:
         self.h5filename = h5filename
         self.h5datagroup = h5datagroup
 
+        # Now check if datagroup exists yet.
+        with h5py.File(self.h5filename, "r") as hf:
+            if self.h5datagroup in hf:
+                self.nframes, self.shape, self.dtype = self._get_core_attrs(
+                    self.h5datagroup
+                )
+
     def add_images(self, images, threshold=0, background=None):
         pass
+
+    def get_images(self):
+        """Return list of sparse images"""
+        with  h5py.File(self.h5filename, "w") as hf:
+            g = h5[self.h5datagroup]
+            imgs = []
+            for in range(self.nframes):
+                datname, indname, ptrname = SparseArrayHDF5.dataset_names(i)
+                data = g[datname]
+                indices = g[indname]
+                indptr = g[ptrname]
+                imgs.append(csr_matrix(data, indices, indptr))
+
+        return imgs
 
     def copy_frame_cache(self, fcfile):
         """Write an HDF5 sparse array from a frame-cache file
@@ -36,13 +57,44 @@ class SparseArrayHDF5:
             name of frame-cache (npz) file
         """
         fc = FrameCacheImageSeriesAdapter(fcfile)
-
         with h5py.File(self.h5filename, "w") as hf:
             g = hf.create_group(self.h5datagroup)
+            self._add_core_attrs(g, fc.nframes, fc.shape, fc.dtype)
             for i, frame in enumerate(fc.framelist):
                 # frame is a csr_matrix
-                name = f"frame-{i}"
-                g.create_dataset(f"data_{i}", data=frame.data)
-                g.create_dataset(f"indices_{i}", data=frame.indices)
-                g.create_dataset(f"indptr_{i}", data=frame.indptr)
+                dname, iname, pname = dataset_names(i)
+                g.create_dataset(dname, data=frame.data)
+                g.create_dataset(iname, data=frame.indices)
+                g.create_dataset(pname, data=frame.indptr)
         # Don't forget to add the metadata
+
+    @staticmethod
+    def dataset_names(i):
+        """DataSet names for frame i
+
+        PARAMETERS
+        ----------
+        i: int
+           index of frame
+
+        RETURNS
+        -------
+        3-tuple of str
+           name for data, indices, and indptr array
+
+        """
+        return f"data_{i}", f"indices_{i}", f"indptr_{i}"
+
+    # TO DO: add metadata to core attributes (?)
+    @staticmethod
+    def _add_core_attrs(g, nframes, shape, dtype):
+        g.attrs['_nframes'] = nframes
+        g.attrs['_shape'] = shape
+        g.attrs['_dtype'] = str(dtype)
+
+    @staticmethod
+    def _get_core_attrs(g):
+        nframes = g.attrs['_nframes']
+        shape = g.attrs['_shape'] =
+        dtype = np.dtype(g.attrs['_dtype'])
+        return nframes, shape, dtype

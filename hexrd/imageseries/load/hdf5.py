@@ -61,7 +61,7 @@ class HDF5ImageSeriesAdapter(ImageSeriesAdapter):
         if self._ndim == 2:
             if key != 0:
                 raise IndexError(
-                    f'key {key} is out of range for imageseris with length 1'
+                    f'key {key} is out of range for imageseries with length 1'
                 )
             # !!! necessary when not returning a slice
             return np.asarray(self.__image_dataset)
