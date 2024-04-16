@@ -1,4 +1,6 @@
 """Manage Data File for SparseArray Format"""
+from pathlib import Path
+
 import numpy as np
 import h5py
 
@@ -17,15 +19,17 @@ class SparseArrayHDF5:
     """
 
     def __init__(self, h5filename, h5datagroup):
-        self.h5filename = h5filename
+        self.h5filename = Path(h5filename)
         self.h5datagroup = h5datagroup
 
-        # Now check if datagroup exists yet.
-        with h5py.File(self.h5filename, "r") as hf:
-            if self.h5datagroup in hf:
-                self.nframes, self.shape, self.dtype = self._get_core_attrs(
-                    self.h5datagroup
-                )
+        # If datagroup exists, set core attributes.
+        self.nframes, self.shape, self.dtype = 3 * (None,)
+        if self.h5filename.exists():
+            with h5py.File(self.h5filename, "r") as hf:
+                if self.h5datagroup in hf:
+                    self.nframes, self.shape, self.dtype = (
+                        self._get_core_attrs(self.h5datagroup)
+                    )
 
     def add_images(self, images, threshold=0, background=None):
         pass
@@ -35,7 +39,7 @@ class SparseArrayHDF5:
         with  h5py.File(self.h5filename, "w") as hf:
             g = h5[self.h5datagroup]
             imgs = []
-            for in range(self.nframes):
+            for i in range(self.nframes):
                 datname, indname, ptrname = SparseArrayHDF5.dataset_names(i)
                 data = g[datname]
                 indices = g[indname]
@@ -95,6 +99,6 @@ class SparseArrayHDF5:
     @staticmethod
     def _get_core_attrs(g):
         nframes = g.attrs['_nframes']
-        shape = g.attrs['_shape'] =
+        shape = g.attrs['_shape']
         dtype = np.dtype(g.attrs['_dtype'])
         return nframes, shape, dtype
