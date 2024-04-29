@@ -28,11 +28,14 @@ class SparseArrayHDF5:
             with h5py.File(self.h5filename, "r") as hf:
                 if self.h5datagroup in hf:
                     self.nframes, self.shape, self.dtype = (
-                        self._get_core_attrs(self.h5datagroup)
+                        self._get_core_attrs(hf[self.h5datagroup])
                     )
 
-    def add_images(self, images, threshold=0, background=None):
-        pass
+    def add_images(self, images, shape, dtype,
+                   offset=0, threshold=0, background=None
+    ):
+        nframes = 0
+
 
     def get_images(self):
         """Return list of sparse images"""
@@ -63,10 +66,10 @@ class SparseArrayHDF5:
         fc = FrameCacheImageSeriesAdapter(fcfile)
         with h5py.File(self.h5filename, "w") as hf:
             g = hf.create_group(self.h5datagroup)
-            self._add_core_attrs(g, fc.nframes, fc.shape, fc.dtype)
+            self._add_core_attrs(g, fc._nframes, fc.shape, fc.dtype)
             for i, frame in enumerate(fc.framelist):
                 # frame is a csr_matrix
-                dname, iname, pname = dataset_names(i)
+                dname, iname, pname = self.dataset_names(i)
                 g.create_dataset(dname, data=frame.data)
                 g.create_dataset(iname, data=frame.indices)
                 g.create_dataset(pname, data=frame.indptr)
