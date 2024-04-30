@@ -108,6 +108,6 @@ class SparseArrayHDF5:
     @staticmethod
     def _get_core_attrs(g):
         nframes = g.attrs['_nframes']
-        shape = g.attrs['_shape']
+        shape = tuple(g.attrs['_shape'])
         dtype = np.dtype(g.attrs['_dtype'])
         return nframes, shape, dtype
