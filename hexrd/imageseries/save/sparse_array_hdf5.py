@@ -3,6 +3,7 @@ from pathlib import Path
 
 import numpy as np
 import h5py
+from scipy.sparse import csr_matrix
 
 from hexrd.imageseries.load.framecache import FrameCacheImageSeriesAdapter
 
@@ -39,15 +40,16 @@ class SparseArrayHDF5:
 
     def get_images(self):
         """Return list of sparse images"""
-        with  h5py.File(self.h5filename, "w") as hf:
-            g = h5[self.h5datagroup]
+        with  h5py.File(self.h5filename, "r") as hf:
+            g = hf[self.h5datagroup]
+            nframes, shape, dtype = self._get_core_attrs(g)
             imgs = []
             for i in range(self.nframes):
                 datname, indname, ptrname = SparseArrayHDF5.dataset_names(i)
                 data = g[datname]
                 indices = g[indname]
                 indptr = g[ptrname]
-                imgs.append(csr_matrix(data, indices, indptr))
+                imgs.append(csr_matrix((data, indices, indptr), shape=shape))
 
         return imgs
 
@@ -91,6 +93,10 @@ class SparseArrayHDF5:
 
         """
         return f"data_{i}", f"indices_{i}", f"indptr_{i}"
+
+    @property
+    def metadata(self):
+        return self._metadata
 
     # TO DO: add metadata to core attributes (?)
     @staticmethod

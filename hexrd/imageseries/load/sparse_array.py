@@ -1,6 +1,8 @@
 """Sparse Array imageseries"""
 import numpy as np
 
+from scipy.sparse import csr_matrix
+
 from . import ImageSeriesAdapter
 from ..imageseriesiter import ImageSeriesIterator
 from .. save.sparse_array_hdf5 import SparseArrayHDF5
@@ -26,10 +28,13 @@ class SparseArrayImageSeriesAdapter(ImageSeriesAdapter):
         if h5datagroup is None:
             raise ValueError('No value was given for "h5datagroup."')
         self.sparse_h5 = SparseArrayHDF5(fname, h5datagroup)
+        self._nframes = self.sparse_h5.nframes
+        self._shape = self.sparse_h5.shape
+        self._dtype = self.sparse_h5.dtype
         self._sparse_images = self.sparse_h5.get_images()
-        self._metadata = self.sparse_h5.get_metadata()
+        # self._metadata = self.sparse_h5.get_metadata()
 
-    def __get_item__(self, key):
+    def __getitem__(self, key):
         return self.sparse_images[key]
 
     def __len__(self):
