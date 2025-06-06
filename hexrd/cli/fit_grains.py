@@ -58,7 +58,7 @@ class GrainData(_BaseGrainData):
     @classmethod
     def from_grains_out(cls, fname):
         """Read hexrd grains output file"""
-        return cls.from_array(np.loadtxt(fname))
+        return cls.from_array(np.atleast_2d(np.loadtxt(fname)))
 
     @classmethod
     def from_array(cls, a):
