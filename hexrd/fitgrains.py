@@ -15,7 +15,7 @@ import warnings
 from hexrd import instrument
 from hexrd.transforms import xfcapi
 from hexrd import rotations
-from hexrd.fitting import fitGrain, objFuncFitGrain, gFlag_ref
+from hexrd.fitting import fitGrain, objFuncFitGrain, gFlag_ref, grains
 
 logger = logging.getLogger(__name__)
 
@@ -214,19 +214,31 @@ def fit_grain_FF_reduced(grain_id):
             )
             return grain_id, completeness, np.inf, grain_params
         else:
+            print("\n ----- Begin Fit for grain: ", grain_id,
+
+                  f"\n   tols: (tth, eta, ome) = ({tols[0]}, {tols[1]}, {tols[2]})",
+                  f"\n   total/valid reflections: {num_refl_tot}/{num_refl_valid}",
+                  f"\n   completeness: {completeness:.1%}")
             grain_params = fitGrain(
-                    grain_params, instrument, culled_results,
-                    plane_data.latVecOps['B'], plane_data.wavelength
-                )
+                grain_params, instrument, culled_results,
+                plane_data.latVecOps['B'], plane_data.wavelength,
+                xtol=1e-3
+            )
             # get chisq
             # TODO: do this while evaluating fit???
-            chisq = objFuncFitGrain(
-                    grain_params[gFlag_ref], grain_params, gFlag_ref,
-                    instrument,
-                    culled_results,
-                    plane_data.latVecOps['B'], plane_data.wavelength,
-                    ome_period,
-                    simOnly=False, return_value_flag=2)
+            chisq, _plus = objFuncFitGrain(
+                grain_params[gFlag_ref], grain_params, gFlag_ref,
+                instrument,
+                culled_results,
+                plane_data.latVecOps['B'], plane_data.wavelength,
+                ome_period,
+                simOnly=False, return_value_flag=grains.ReturnValue.CHISQ_PLUS)
+            rms, nvalid = _plus
+            completeness = nvalid / float(num_refl_tot)
+            print(
+                f"   updated completeness: {completeness:.1%}"
+                f"\n   root mean square: {rms:.3f} (mixed units)"
+            )
 
     if refit is not None:
         # first get calculated x, y, ome from previous solution
@@ -251,6 +263,9 @@ def fit_grain_FF_reduced(grain_id):
 
             ims = next(iter(imgser_dict.values()))  # grab first for the omes
             ome_step = sum(np.r_[-1, 1]*ims.metadata['omega'][0, :])
+            ome_step = sum(
+                np.r_[-1, 1] * np.radians(ims.metadata['omega'][0, :])
+            )
 
             xyo_det = np.atleast_2d(
                 np.vstack([np.r_[x[7], x[6][-1]] for x in presults])
@@ -261,6 +276,7 @@ def fit_grain_FF_reduced(grain_id):
             xpix_tol = refit[0]*panel.pixel_size_col
             ypix_tol = refit[0]*panel.pixel_size_row
             fome_tol = refit[1]*ome_step
+            # print("----- fome_tol: ", np.degrees(fome_tol))
 
             # define difference vectors for spot fits
             x_diff = abs(xyo_det[:, 0] - xyo_det_fit['calc_xy'][:, 0])
@@ -274,9 +290,9 @@ def fit_grain_FF_reduced(grain_id):
             # a pixel and delta omega away from predicted value
             idx_new = np.logical_and(
                 x_diff <= xpix_tol,
-                np.logical_and(y_diff <= ypix_tol,
-                               ome_diff <= fome_tol)
-                               )
+                y_diff <= ypix_tol,
+                ome_diff <= fome_tol
+            )
 
             # attach to proper dict entry
             culled_results_r[det_key] = [
@@ -286,6 +302,11 @@ def fit_grain_FF_reduced(grain_id):
             num_refl_valid += sum(idx_new)
 
         # only execute fit if left with enough reflections
+        completeness = num_refl_valid / num_refl_tot
+        print("\n ---- Begin refit for grain: ", grain_id,
+              f"\n   total/valid reflections: {num_refl_tot}/{num_refl_valid}"
+              f"\n              completeness: {completeness:.1%}"
+        )
         if num_refl_valid > 12:
             grain_params = fitGrain(
                 grain_params, instrument, culled_results_r,
@@ -293,14 +314,25 @@ def fit_grain_FF_reduced(grain_id):
             )
             # get chisq
             # TODO: do this while evaluating fit???
-            chisq = objFuncFitGrain(
-                    grain_params[gFlag_ref],
-                    grain_params, gFlag_ref,
-                    instrument,
-                    culled_results_r,
-                    plane_data.latVecOps['B'], plane_data.wavelength,
-                    ome_period,
-                    simOnly=False, return_value_flag=2)
+            chisq, _plus = objFuncFitGrain(
+                grain_params[gFlag_ref],
+                grain_params, gFlag_ref,
+                instrument,
+                culled_results_r,
+                plane_data.latVecOps['B'],
+                plane_data.wavelength,
+                ome_period,
+                simOnly=False,
+                return_value_flag=grains.ReturnValue.CHISQ_PLUS
+            )
+            rms, nvalid = _plus
+            completeness = nvalid / float(num_refl_tot)
+            print(
+                f"   updated completeness: {completeness:.1%}"
+                f"\n   root mean square: {rms:.3f} (mixed units)"
+            )
+        else:
+            raise warnings.warn("not enough reflections for refit")
     return grain_id, completeness, chisq, grain_params
 
 
