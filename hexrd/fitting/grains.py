@@ -1,11 +1,11 @@
 """Grain fitting functions"""
 
-import numpy as np
+from enum import IntEnum
 
+import numpy as np
 from scipy import optimize
 
 from hexrd import matrixutil as mutil
-
 from hexrd.transforms import xfcapi
 from hexrd import constants
 from hexrd import rotations
@@ -14,6 +14,13 @@ from hexrd.xrdutil import (
     apply_correction_to_wavelength,
     extract_detector_transformation,
 )
+
+
+class ReturnValue(IntEnum):
+    RESIDUAL_SUMABS = 1
+    CHISQ_ONLY = 2
+    CHISQ_PLUS = 3
+
 
 return_value_flag = None
 
@@ -29,6 +36,9 @@ vInv_ref = np.r_[1., 1., 1., 0., 0., 0.]
 gFlag_ref = np.ones(12, dtype=bool)
 gScl_ref = np.ones(12, dtype=bool)
 
+np.set_printoptions(precision=3, suppress=True)
+
+
 
 def fitGrain(gFull, instrument, reflections_dict,
              bMat, wavelength,
@@ -36,42 +46,17 @@ def fitGrain(gFull, instrument, reflections_dict,
              omePeriod=None,
              factor=0.1, xtol=sqrt_epsf, ftol=sqrt_epsf):
     """
-    Perform least-squares optimization of grain parameters.
+    Pefrorm least-squares optimization of grain parameters.
 
     Parameters
     ----------
-    gFull : TYPE
-        DESCRIPTION.
-    instrument : TYPE
-        DESCRIPTION.
-    reflections_dict : TYPE
-        DESCRIPTION.
-    bMat : TYPE
-        DESCRIPTION.
-    wavelength : TYPE
-        DESCRIPTION.
-    gFlag : TYPE, optional
-        DESCRIPTION. The default is gFlag_ref.
-    gScl : TYPE, optional
-        DESCRIPTION. The default is gScl_ref.
-    omePeriod : TYPE, optional
-        DESCRIPTION. The default is None.
-    factor : TYPE, optional
-        DESCRIPTION. The default is 0.1.
-    xtol : TYPE, optional
-        DESCRIPTION. The default is sqrt_epsf.
-    ftol : TYPE, optional
-        DESCRIPTION. The default is sqrt_epsf.
 
     Raises
     ------
     RuntimeError
-        DESCRIPTION.
 
     Returns
     -------
-    retval : TYPE
-        DESCRIPTION.
 
     """
     # FIXME: will currently fail if omePeriod is specifed
@@ -109,12 +94,43 @@ def fitGrain(gFull, instrument, reflections_dict,
 
     fitArgs = (gFull, gFlag, instrument, new_reflections_dict,
                bMat, wavelength, omePeriod)
-    results = optimize.leastsq(objFuncFitGrain, gFit, args=fitArgs,
-                               diag=1./gScl[gFlag].flatten(),
-                               factor=0.1, xtol=xtol, ftol=ftol)
+    results = optimize.leastsq(
+        objFuncFitGrain, gFit, args=fitArgs,
+        diag=1./gScl[gFlag].flatten(),
+        factor=0.1, xtol=xtol, ftol=ftol,
+        full_output=True
+    )
 
     gFit_opt = results[0]
 
+    # debug: Fix this !
+    ori = results[0][:3]
+    cen = results[0][3:6]
+    cen_r = np.sqrt(cen[0] ** 2 + cen[2] ** 2)
+    Vinv = results[0][6:]
+    fvec = results[2]['fvec']
+    npts = len(fvec) // 3
+    diff_vecs_xy = fvec[:(2 * npts)]
+    diff_ome = fvec[(2 * npts):]
+    diff_ome_deg = np.degrees(diff_ome)
+    rms = np.sqrt(np.sum(fvec * fvec) /npts)
+    rms_dxy = np.sqrt(np.sum(diff_vecs_xy ** 2)/npts)
+    rms_dom = np.sqrt(np.sum(diff_ome ** 2)/npts)
+    print(
+        "   " + 5 * '=' + " Optimization Results\n",
+        "\n   number of points/reflections: ", npts,
+        "\n   ori: ", ori,
+        "\n   cen: ", 1000 * cen, "um",
+        "\n   Vinv: ", Vinv,
+        "\n   function evaluations: ", results[2]['nfev'],
+        "\n   msg: ", results[3:5],
+        f"\n   root-mean-square total: {rms:.3f} (mixed units)",
+        f"\n   root-mean-square delta-xy: {1000 * rms_dxy:.1f} um",
+        f"\n   root-mean-square delta-omega: {rms_dom:.3f} rad",
+        f"\n   mean delta-omega: {diff_ome_deg.mean():.1f} deg",
+        f"\n   max delta-omega: {diff_ome_deg.max():.1f} deg",
+        "\n   number > 5 deg: ", np.count_nonzero(diff_ome_deg > 5),
+    )
     retval = gFull
     retval[gFlag] = gFit_opt
     return retval
@@ -127,63 +143,40 @@ def objFuncFitGrain(gFit, gFull, gFlag,
                     omePeriod,
                     simOnly=False,
                     return_value_flag=return_value_flag):
-    """
-    Calculate residual between measured and simulated ff-HEDM G-vectors.
+    """Least squares residual for grain fitting
 
-    gFull[0]  = expMap_c[0]
-    gFull[1]  = expMap_c[1]
-    gFull[2]  = expMap_c[2]
-    gFull[3]  = tVec_c[0]
-    gFull[4]  = tVec_c[1]
-    gFull[5]  = tVec_c[2]
-    gFull[6]  = vInv_MV[0]
-    gFull[7]  = vInv_MV[1]
-    gFull[8]  = vInv_MV[2]
-    gFull[9]  = vInv_MV[3]
-    gFull[10] = vInv_MV[4]
-    gFull[11] = vInv_MV[5]
 
-    OLD CALL
-    objFuncFitGrain(gFit, gFull, gFlag,
-                    detectorParams,
-                    xyo_det, hkls_idx, bMat, wavelength,
-                    bVec, eVec,
-                    dFunc, dParams,
-                    omePeriod,
-                    simOnly=False, return_value_flag=return_value_flag)
-
-    Parameters
+    PARAMETERS
     ----------
-    gFit : TYPE
-        DESCRIPTION.
-    gFull : TYPE
-        DESCRIPTION.
-    gFlag : TYPE
-        DESCRIPTION.
-    instrument : TYPE
-        DESCRIPTION.
-    reflections_dict : TYPE
-        DESCRIPTION.
-    bMat : TYPE
-        DESCRIPTION.
-    wavelength : TYPE
-        DESCRIPTION.
-    omePeriod : TYPE
-        DESCRIPTION.
-    simOnly : TYPE, optional
-        DESCRIPTION. The default is False.
-    return_value_flag : TYPE, optional
-        DESCRIPTION. The default is return_value_flag.
+    gFit :
 
-    Raises
+    gFull :
+
+    gFlag :
+
+    instrument : HEDMInstrument instance
+        the HEDM instrument
+    reflections_dict : dict
+        dictionary of reflections for each panel
+    bMat : array()
+        matrix for converting ... to spatial coordinates
+    wavelength : float
+        wavelength of beam
+    omePeriod :
+
+    simOnly : bool, default=False
+        simulate only
+    return_value_flag : int
+        indicating what to return
+
+    RETURNS
+    -------
+    retval :
+        depends on return flag
+
+    RAISES
     ------
     RuntimeError
-        DESCRIPTION.
-
-    Returns
-    -------
-    retval : TYPE
-        DESCRIPTION.
 
     """
     bVec = instrument.beam_vector
@@ -197,6 +190,8 @@ def objFuncFitGrain(gFit, gFull, gFlag,
     # map parameters to functional arrays
     rMat_c = xfcapi.make_rmat_of_expmap(gFull[:3])
     tVec_c = gFull[3:6].reshape(3, 1)
+    cen_r = np.sqrt(tVec_c[0] ** 2 + tVec_c[2] ** 2)
+
     vInv_s = gFull[6:]
     vMat_s = mutil.vecMVToSymm(vInv_s)  # NOTE: Inverse of V from F = V * R
 
@@ -328,21 +323,43 @@ def objFuncFitGrain(gFit, gFull, gFlag,
         diff_ome = rotations.angularDifference(
             calc_omes_all, meas_xyo_all[:, 2]
         )
-        retval = np.hstack([diff_vecs_xy,
-                            diff_ome.reshape(npts, 1)
-                            ]).flatten()
-        if return_value_flag == 1:
+        DEBUG = False
+        OMEOFFSET = 0.0
+        PENALTY = cen_r
+        if DEBUG:
+            retval = np.hstack([
+                diff_vecs_xy,
+                PENALTY * (diff_ome - OMEOFFSET).reshape(npts, 1)
+
+            ]).flatten()
+        else:
+            retval = np.hstack(
+                [diff_vecs_xy,
+                 diff_ome.reshape(npts, 1)
+                 ]
+            ).flatten()
+
+        # Standard chisq return value.
+        resid_ssq = np.sum(retval ** 2)
+        denom = 3 * npts - len(gFit) - 1.0
+        if denom != 0:
+            nu_fac = 1. / denom
+        else:
+            nu_fac = 1.
+        chisq = nu_fac * resid_ssq
+
+        if return_value_flag == ReturnValue.RESIDUAL_SUMABS:
             # return scalar sum of squared residuals
             retval = sum(abs(retval))
-        elif return_value_flag == 2:
+
+        elif return_value_flag == ReturnValue.CHISQ_ONLY:
             # return DOF-normalized chisq
-            # TODO: check this calculation
-            denom = 3*npts - len(gFit) - 1.
-            if denom != 0:
-                nu_fac = 1. / denom
-            else:
-                nu_fac = 1.
-            retval = nu_fac * sum(retval**2)
+            retval = chisq
+
+        elif return_value_flag == ReturnValue.CHISQ_PLUS:
+            rms = np.sqrt(resid_ssq / npts)
+            retval = (chisq, (rms, npts))
+
     return retval
 
 
