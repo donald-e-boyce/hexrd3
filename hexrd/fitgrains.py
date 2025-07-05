@@ -31,6 +31,9 @@ SPOTS_OUT_FILE = "spots_%05d.out"
 _BeginFit = namedtuple("_BeginFit", ["tols", "nrvalu", "nrval", "nrtot"])
 
 
+_BeginRefit = namedtuple("_BeginRefit", ["tols", "nrval", "nrtot"])
+
+
 _FitResult = namedtuple("_FitResult", ["rms", "rmsxy", "omestats"])
 
 
@@ -310,11 +313,10 @@ def fit_grain_FF_reduced(grain_id):
             num_refl_valid += sum(idx_new)
 
         # only execute fit if left with enough reflections
-        completeness = num_refl_valid / num_refl_tot
-        print("\n ---- Begin refit for grain: ", grain_id,
-              f"\n   total/valid reflections: {num_refl_tot}/{num_refl_valid}"
-              f"\n              completeness: {completeness:.1%}"
-        )
+        pixtols = (xpix_tol, ypix_tol, fome_tol)
+        _begin_refit = _BeginRefit(pixtols, num_refl_valid, num_refl_tot)
+        print_info(grain_id, begin_refit=_begin_refit)
+
         if num_refl_valid > 12:
             grain_params = fitGrain(
                 grain_params, instrument, culled_results_r,
@@ -334,8 +336,9 @@ def fit_grain_FF_reduced(grain_id):
                 simOnly=False,
                 return_value_flag=grains.ReturnValue.CHISQ_PLUS
             )
-            rms, nvalid = _plus
-            completeness = nvalid / float(num_refl_tot)
+            (npts, rms, rmsxy, omestats) = _plus
+            _result = _FitResult(rms, rmsxy, omestats)
+            print_info(grain_id, result=_result, grain_params=grain_params)
         else:
             raise warnings.warn("not enough reflections for refit")
     return grain_id, completeness, chisq, grain_params
@@ -464,7 +467,8 @@ def fit_grains(cfg,
     return fit_results
 
 
-def print_info(grain_id, begin=None, result=None, grain_params=None):
+def print_info(grain_id,
+               begin=None, result=None, grain_params=None, begin_refit=None):
     gidstr = f"\ngid:{grain_id}:"
 
     if begin is not None:
@@ -506,5 +510,22 @@ def print_info(grain_id, begin=None, result=None, grain_params=None):
                 f"  centroid: ({cen[0]:.1f}, {cen[1]:.1f}, {cen[2]:.1f})  um",
                 f"  V_inv: {V_inv[0]:.5f}, {V_inv[1]:.5f}, {V_inv[2]:.5f}",
                 f"       : {V_inv[3]:.5f}, {V_inv[4]:.5f}, {V_inv[5]:.5f}",
+            ])
+        )
+
+    if begin_refit is not None:
+        xp, yp, ome = begin_refit.tols
+        ome_deg = np.degrees(ome)
+        comp = begin_refit.nrval / begin_refit.nrtot
+        to_um = 1e3
+        print(
+            gidstr.join([
+                "", "  ----- begin refit",
+                f"  x-pixel tol: {to_um * xp:.1f} um",
+                f"  y-pixel tol: {to_um * yp:.1f} um",
+                f"  omega-tol: {ome_deg:.2f} deg",
+                f"  number reflections: valid / total: "
+                f"{begin_refit.nrval}, {begin_refit.nrtot}",
+                f"  completeness: {comp:.1%}",
             ])
         )

@@ -48,6 +48,7 @@ def get_exclusion_parameters(cfg, prefix):
     # "tth_max", as used in fit_grains.
     # -- Should add a deprecated warning if min_sfac_ratio is used
     #
+    # import pdb; pdb.set_trace()
     sfmin_dflt = cfg.get(yaml_key("min_sfac_ratio"), None)
     if sfmin_dflt is not None:
         warnings.warn(
@@ -57,6 +58,7 @@ def get_exclusion_parameters(cfg, prefix):
     # Default for reset_exclusions is True so that old config files will
     # produce the same behavior.
     reset_exclusions= cfg.get(yaml_key("reset_exclusions"), True)
+    # print("*** -----", cfg, yaml_key("reset_exclusions"), reset_exclusions)
 
     return(
         reset_exclusions,
