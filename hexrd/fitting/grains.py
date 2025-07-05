@@ -36,7 +36,7 @@ vInv_ref = np.r_[1., 1., 1., 0., 0., 0.]
 gFlag_ref = np.ones(12, dtype=bool)
 gScl_ref = np.ones(12, dtype=bool)
 
-np.set_printoptions(precision=3, suppress=True)
+np.set_printoptions(precision=4, suppress=True)
 
 
 
@@ -104,33 +104,17 @@ def fitGrain(gFull, instrument, reflections_dict,
     gFit_opt = results[0]
 
     # debug: Fix this !
-    ori = results[0][:3]
-    cen = results[0][3:6]
-    cen_r = np.sqrt(cen[0] ** 2 + cen[2] ** 2)
-    Vinv = results[0][6:]
     fvec = results[2]['fvec']
     npts = len(fvec) // 3
-    diff_vecs_xy = fvec[:(2 * npts)]
-    diff_ome = fvec[(2 * npts):]
+    fvec_2d = fvec.reshape(npts, 3)
+    diff_vecs_xy = fvec_2d[:, :2]
+    diff_ome = fvec_2d[:, 2]
     diff_ome_deg = np.degrees(diff_ome)
     rms = np.sqrt(np.sum(fvec * fvec) /npts)
     rms_dxy = np.sqrt(np.sum(diff_vecs_xy ** 2)/npts)
     rms_dom = np.sqrt(np.sum(diff_ome ** 2)/npts)
-    print(
-        "   " + 5 * '=' + " Optimization Results\n",
-        "\n   number of points/reflections: ", npts,
-        "\n   ori: ", ori,
-        "\n   cen: ", 1000 * cen, "um",
-        "\n   Vinv: ", Vinv,
-        "\n   function evaluations: ", results[2]['nfev'],
-        "\n   msg: ", results[3:5],
-        f"\n   root-mean-square total: {rms:.3f} (mixed units)",
-        f"\n   root-mean-square delta-xy: {1000 * rms_dxy:.1f} um",
-        f"\n   root-mean-square delta-omega: {rms_dom:.3f} rad",
-        f"\n   mean delta-omega: {diff_ome_deg.mean():.1f} deg",
-        f"\n   max delta-omega: {diff_ome_deg.max():.1f} deg",
-        "\n   number > 5 deg: ", np.count_nonzero(diff_ome_deg > 5),
-    )
+    # gidstr = f"gid: {grainid}:"
+
     retval = gFull
     retval[gFlag] = gFit_opt
     return retval
@@ -219,6 +203,7 @@ def objFuncFitGrain(gFit, gFull, gFlag,
             instrument.detector_parameters[det_key])
 
         results = reflections_dict[det_key]
+
         if not isinstance(results, dict) and len(results) == 0:
             continue
 
@@ -323,6 +308,11 @@ def objFuncFitGrain(gFit, gFull, gFlag,
         diff_ome = rotations.angularDifference(
             calc_omes_all, meas_xyo_all[:, 2]
         )
+        # DEBUGGING
+        # Print stats on diff_ome and prompt to continue
+        _tmp = np.degrees(diff_ome)
+        _stats = np.array([_tmp.max(), _tmp.min(), _tmp.mean()])
+
         DEBUG = False
         OMEOFFSET = 0.0
         PENALTY = cen_r
@@ -348,6 +338,11 @@ def objFuncFitGrain(gFit, gFull, gFlag,
             nu_fac = 1.
         chisq = nu_fac * resid_ssq
 
+        # Other info.
+        rms = np.sqrt(resid_ssq / npts)
+        rmsxy = np.sqrt(np.sum(diff_vecs_xy ** 2 / npts))
+        omestats = (diff_ome.max(), diff_ome.min(), diff_ome.mean())
+
         if return_value_flag == ReturnValue.RESIDUAL_SUMABS:
             # return scalar sum of squared residuals
             retval = sum(abs(retval))
@@ -357,8 +352,9 @@ def objFuncFitGrain(gFit, gFull, gFlag,
             retval = chisq
 
         elif return_value_flag == ReturnValue.CHISQ_PLUS:
+            np.save("diff-ome", diff_ome)
             rms = np.sqrt(resid_ssq / npts)
-            retval = (chisq, (rms, npts))
+            retval = (chisq, (npts, rms, rmsxy, np.array(omestats)))
 
     return retval
 
