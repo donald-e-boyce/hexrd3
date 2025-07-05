@@ -7,6 +7,7 @@ Created on Wed Mar 22 19:04:10 2017
 """
 import os
 import logging
+from collections import namedtuple
 import multiprocessing
 import numpy as np
 import timeit
@@ -25,6 +26,12 @@ logger = logging.getLogger(__name__)
 
 OVERLAP_TABLE_FILE = 'overlap_table.npz'
 SPOTS_OUT_FILE = "spots_%05d.out"
+
+
+_BeginFit = namedtuple("_BeginFit", ["tols", "nrvalu", "nrval", "nrtot"])
+
+
+_FitResult = namedtuple("_FitResult", ["rms", "rmsxy", "omestats"])
 
 
 # multiprocessing fit funcs
@@ -124,6 +131,7 @@ def fit_grain_FF_reduced(grain_id):
         culled_results = dict.fromkeys(results)
         num_refl_tot = 0
         num_refl_valid = 0
+        num_refl_valid_unsat = 0
         for det_key in culled_results:
             panel = instrument.detectors[det_key]
 
@@ -157,6 +165,9 @@ def fit_grain_FF_reduced(grain_id):
                     max_int[valid_refl_ids] < panel.saturation_level
 
             idx = np.logical_and(valid_refl_ids, unsat_spots)
+            idxnz = np.count_nonzero(idx)
+            num_refl_valid_unsat += idxnz
+
 
             # if an overlap table has been written, load it and use it
             overlaps = np.zeros_like(idx, dtype=bool)
@@ -214,11 +225,10 @@ def fit_grain_FF_reduced(grain_id):
             )
             return grain_id, completeness, np.inf, grain_params
         else:
-            print("\n ----- Begin Fit for grain: ", grain_id,
-
-                  f"\n   tols: (tth, eta, ome) = ({tols[0]}, {tols[1]}, {tols[2]})",
-                  f"\n   total/valid reflections: {num_refl_tot}/{num_refl_valid}",
-                  f"\n   completeness: {completeness:.1%}")
+            _begin = _BeginFit(
+                tols, num_refl_valid_unsat, num_refl_valid, num_refl_tot
+            )
+            print_info(grain_id, begin=_begin)
             grain_params = fitGrain(
                 grain_params, instrument, culled_results,
                 plane_data.latVecOps['B'], plane_data.wavelength,
@@ -232,13 +242,12 @@ def fit_grain_FF_reduced(grain_id):
                 culled_results,
                 plane_data.latVecOps['B'], plane_data.wavelength,
                 ome_period,
-                simOnly=False, return_value_flag=grains.ReturnValue.CHISQ_PLUS)
-            rms, nvalid = _plus
-            completeness = nvalid / float(num_refl_tot)
-            print(
-                f"   updated completeness: {completeness:.1%}"
-                f"\n   root mean square: {rms:.3f} (mixed units)"
+                simOnly=False,
+                return_value_flag=grains.ReturnValue.CHISQ_PLUS
             )
+            (npts, rms, rmsxy, omestats) = _plus
+            _result = _FitResult(rms, rmsxy, omestats)
+            print_info(grain_id, result=_result, grain_params=grain_params)
 
     if refit is not None:
         # first get calculated x, y, ome from previous solution
@@ -276,7 +285,6 @@ def fit_grain_FF_reduced(grain_id):
             xpix_tol = refit[0]*panel.pixel_size_col
             ypix_tol = refit[0]*panel.pixel_size_row
             fome_tol = refit[1]*ome_step
-            # print("----- fome_tol: ", np.degrees(fome_tol))
 
             # define difference vectors for spot fits
             x_diff = abs(xyo_det[:, 0] - xyo_det_fit['calc_xy'][:, 0])
@@ -310,7 +318,8 @@ def fit_grain_FF_reduced(grain_id):
         if num_refl_valid > 12:
             grain_params = fitGrain(
                 grain_params, instrument, culled_results_r,
-                plane_data.latVecOps['B'], plane_data.wavelength
+                plane_data.latVecOps['B'], plane_data.wavelength,
+                ftol=1e-3
             )
             # get chisq
             # TODO: do this while evaluating fit???
@@ -327,10 +336,6 @@ def fit_grain_FF_reduced(grain_id):
             )
             rms, nvalid = _plus
             completeness = nvalid / float(num_refl_tot)
-            print(
-                f"   updated completeness: {completeness:.1%}"
-                f"\n   root mean square: {rms:.3f} (mixed units)"
-            )
         else:
             raise warnings.warn("not enough reflections for refit")
     return grain_id, completeness, chisq, grain_params
@@ -457,3 +462,49 @@ def fit_grains(cfg,
         elapsed = timeit.default_timer() - start
     logger.info("fitting took %f seconds", elapsed)
     return fit_results
+
+
+def print_info(grain_id, begin=None, result=None, grain_params=None):
+    gidstr = f"\ngid:{grain_id}:"
+
+    if begin is not None:
+        tols = begin.tols
+        comp = begin.nrvalu / begin.nrtot
+        print(
+            gidstr.join([
+                "", "  ----- begin fit",
+                f"  tols: (tth, eta, ome) = "
+                f"({tols[0]}, {tols[1]}, {tols[2]})",
+                f"  number reflections: valid  (unsat) / valid / total: "
+                f"{begin.nrvalu}, {begin.nrval}, {begin.nrtot}",
+                f"  completeness: {comp:.1%}",
+            ])
+        )
+
+    if result is not None:
+        ome_deg = np.degrees(result.omestats)
+        print(
+            gidstr.join([
+                "", "  ----- fit results",
+                f"  root mean square (x, y, ome): {result.rms:.3f}",
+                f"  root mean square (x, y): {1000 * result.rmsxy:.1f} um",
+                f"  omega diff max: {ome_deg[0]:.3f} deg",
+                f"  omega diff min: {ome_deg[1]:.3f} deg",
+                f"  omega diff mean: {ome_deg[2]:.3f} deg",
+
+            ])
+        )
+
+    if grain_params is not None:
+        ori = grain_params[:3]
+        cen = 1000 * grain_params[3:6]
+        V_inv = grain_params[6:]
+        print(
+            gidstr.join([
+                "", "  ----- grain parameters",
+                f"  orientation: {ori[0]:.4f}, {ori[1]:.4f}, {ori[2]:.4f}",
+                f"  centroid: ({cen[0]:.1f}, {cen[1]:.1f}, {cen[2]:.1f})  um",
+                f"  V_inv: {V_inv[0]:.5f}, {V_inv[1]:.5f}, {V_inv[2]:.5f}",
+                f"       : {V_inv[3]:.5f}, {V_inv[4]:.5f}, {V_inv[5]:.5f}",
+            ])
+        )
