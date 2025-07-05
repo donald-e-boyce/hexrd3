@@ -112,6 +112,7 @@ def fitGrain(gFull, instrument, reflections_dict,
     diff_ome_deg = np.degrees(diff_ome)
     rms = np.sqrt(np.sum(fvec * fvec) /npts)
     rms_dxy = np.sqrt(np.sum(diff_vecs_xy ** 2)/npts)
+    rms_distxy = np.sqrt(np.sum(dist_xy ** 2)/npts)
     rms_dom = np.sqrt(np.sum(diff_ome ** 2)/npts)
     # gidstr = f"gid: {grainid}:"
 

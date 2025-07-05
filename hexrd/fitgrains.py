@@ -235,7 +235,7 @@ def fit_grain_FF_reduced(grain_id):
             grain_params = fitGrain(
                 grain_params, instrument, culled_results,
                 plane_data.latVecOps['B'], plane_data.wavelength,
-                xtol=1e-3
+                xtol=1e-6
             )
             # get chisq
             # TODO: do this while evaluating fit???
