@@ -340,7 +340,13 @@ def fit_grain_FF_reduced(grain_id):
             _result = _FitResult(rms, rmsxy, omestats)
             print_info(grain_id, result=_result, grain_params=grain_params)
         else:
-            raise warnings.warn("not enough reflections for refit")
+            gidstr = gid_string(grain_id)
+            msg = (gidstr + " refit failed: not enough reflections")
+            warnings.warn(msg)
+            print(gidstr + "  REFIT FAILED")
+            # Return previous result.
+            return grain_id, completeness, chisq, grain_params
+
     return grain_id, completeness, chisq, grain_params
 
 
@@ -467,23 +473,27 @@ def fit_grains(cfg,
     return fit_results
 
 
+def gid_string(id):
+    return f"gid:{id}:"
+
+
 def print_info(grain_id,
                begin=None, result=None, grain_params=None, begin_refit=None):
-    gidstr = f"\ngid:{grain_id}:"
+    gidstr = "\n" + gid_string(grain_id)
 
     if begin is not None:
+        delim = gidstr
         tols = begin.tols
         comp = begin.nrvalu / begin.nrtot
-        print(
-            gidstr.join([
-                "", "  ----- begin fit",
-                f"  tols: (tth, eta, ome) = "
-                f"({tols[0]}, {tols[1]}, {tols[2]})",
-                f"  number reflections: valid  (unsat) / valid / total: "
-                f"{begin.nrvalu}, {begin.nrval}, {begin.nrtot}",
-                f"  completeness: {comp:.1%}",
-            ])
-        )
+        info = [
+            "  ----- begin fit",
+            f"  tols: (tth, eta, ome) = "
+            f"({tols[0]}, {tols[1]}, {tols[2]})",
+            f"  number reflections: valid  (unsat) / valid / total: "
+            f"{begin.nrvalu}, {begin.nrval}, {begin.nrtot}",
+            f"  completeness: {comp:.1%}",
+        ]
+        print(gidstr.join([""] + info))
 
     if result is not None:
         ome_deg = np.degrees(result.omestats)
