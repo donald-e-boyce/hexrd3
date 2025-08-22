@@ -139,3 +139,28 @@ class FitGrainsConfig(Config):
         raise RuntimeError(
             '"%s" must be > 0, true, or false, got "%s"' % (key, temp)
             )
+
+    @property
+    def xtol(self):
+        key = 'fit_grains:xtol'
+        return self._cfg.get(key, None)
+
+    @property
+    def ftol(self):
+        key = 'fit_grains:ftol'
+        return self._cfg.get(key, None)
+
+    @property
+    def fit_vars(self):
+        key = 'fit_grains:xtol'
+        return self._cfg.get(key, None)
+
+    @property
+    def fit_var_scales(self):
+        key = 'fit_grains:xtol'
+        return self._cfg.get(key, None)
+
+    @property
+    def fit_opts(self):
+        """return a dictionary of fitting options"""
+        raise NotImplementedError("fit_opts not implemented (yet!)")
